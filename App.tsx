@@ -982,8 +982,8 @@ const App: React.FC = () => {
                     {showWebhookInstructions && (
                       <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
                         <div className="text-xs text-slate-600 space-y-2">
-                          <p><strong>Passo 1:</strong> No Google Sheets, vá em <em>Extensões &gt; Apps Script</em>.</p>
-                          <p><strong>Passo 2:</strong> Cole o código abaixo, salve e clique em <em>Implantar &gt; Nova Implantação</em>.</p>
+                          <p><strong>Passo 1:</strong> No Google Sheets, vá em Extensões e Apps Script.</p>
+                          <p><strong>Passo 2:</strong> Cole o código abaixo, salve e clique em Implantar depois Nova Implantação.</p>
                           <p><strong>Passo 3:</strong> Escolha "App da Web" e configure para que "Qualquer Pessoa" tenha acesso.</p>
                         </div>
                         <div className="relative group">
