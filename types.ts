@@ -14,7 +14,7 @@ export interface Negotiation {
   id: string;
   companyCnpj: string;
   supplierCnpj: string;
-  amount: number | null;
+  amount: number;
   timestamp: string;
   notes: string;
 }
