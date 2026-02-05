@@ -410,6 +410,7 @@ const App: React.FC = () => {
             <div className="bg-white p-8 rounded-2xl shadow-sm text-center"><p className="text-3xl font-bold font-bai">R$ {(negotiations.reduce((s,n)=>s+(n.amount||0),0)).toLocaleString()}</p><p className="text-xs uppercase text-slate-400 font-bold">Volume Total</p></div>
             <div className="bg-white p-8 rounded-2xl shadow-sm text-center"><p className="text-3xl font-bold font-bai">{users.length}</p><p className="text-xs uppercase text-slate-400 font-bold">Empresas</p></div>
           </div>
+<<<<<<< HEAD
         )}
         {adminTab === 'maintenance' && (
           <div className="space-y-8">
@@ -425,6 +426,388 @@ const App: React.FC = () => {
                   </tr>
                 ))}</tbody>
               </table>
+=======
+        </nav>
+
+        <div className="bg-white border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 lg:px-8">
+            <div className="flex gap-8">
+              {(['summary', 'maintenance', 'config'] as AdminTab[]).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setAdminTab(tab)}
+                  className={`py-4 text-sm font-bold uppercase tracking-wider font-bai border-b-2 transition-all ${
+                    adminTab === tab ? 'border-[#b41e45] text-[#b41e45]' : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  {tab === 'summary' ? 'Resumo' : tab === 'maintenance' ? 'Manutenção' : 'Config'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <main className="max-w-7xl mx-auto w-full p-4 lg:p-8 space-y-8">
+          {adminTab === 'summary' && (
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="text-xl font-bold mb-6 text-slate-700 font-bai">Resumo Geral da Rodada</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="p-6 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <p className="text-3xl font-bold text-[#b41e45] font-bai">{negotiations.length}</p>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-tighter">Negociações Realizadas</p>
+                  </div>
+                  <div className="p-6 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <p className="text-2xl font-bold text-slate-800 font-bai">
+                      {avgNegotiationValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-tighter">Ticket Médio (Valores Ativos)</p>
+                  </div>
+                  <div className="p-6 bg-[#b41e45] rounded-xl text-white text-center shadow-lg">
+                    <p className="text-3xl font-bold font-bai">
+                      {totalNegotiatedAll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </p>
+                    <p className="text-xs text-white/70 font-bold uppercase tracking-wider">Volume Total de Negócios</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-700 font-bai uppercase tracking-wide">Positivação de Fornecedores</h3>
+                    <p className="text-xs text-slate-400 font-bold">Total de Associados na Base: <span className="text-[#b41e45]">{associates.length}</span></p>
+                  </div>
+                  <div className="h-[450px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={adminSupplierPositivationList} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 10}} axisLine={false} tickLine={false} />
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-white p-3 shadow-xl rounded-lg border border-slate-100 text-xs">
+                                  <p className="font-bold text-slate-800 mb-1">{data.name}</p>
+                                  <p className="text-[#b41e45]">Associados Atendidos: {data.negociados}</p>
+                                  <p className="text-slate-400">Faltam: {data.faltantes}</p>
+                                  <p className="mt-1 border-t pt-1 font-bold">Base Total: {data.totalBase}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar dataKey="negociados" fill="#b41e45" radius={[0, 4, 4, 0]} barSize={20}>
+                          <LabelList dataKey="displayLabel" position="right" style={{ fill: '#b41e45', fontSize: '9px', fontWeight: 'bold' }} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-700 font-bai uppercase tracking-wide">Positivação de Associados</h3>
+                    <p className="text-xs text-slate-400 font-bold">Total de Fornecedores na Base: <span className="text-blue-600">{suppliers.length}</span></p>
+                  </div>
+                  <div className="h-[450px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={adminAssociatePositivationList} layout="vertical">
+                        <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 10}} axisLine={false} tickLine={false} />
+                        <Tooltip 
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-white p-3 shadow-xl rounded-lg border border-slate-100 text-xs">
+                                  <p className="font-bold text-slate-800 mb-1">{data.name}</p>
+                                  <p className="text-blue-600">Fornecedores Atendidos: {data.negociados}</p>
+                                  <p className="text-slate-400">Faltam: {data.faltantes}</p>
+                                  <p className="mt-1 border-t pt-1 font-bold">Base Total: {data.totalBase}</p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Bar dataKey="negociados" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
+                          <LabelList dataKey="displayLabel" position="right" style={{ fill: '#3b82f6', fontSize: '9px', fontWeight: 'bold' }} />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {adminTab === 'maintenance' && (
+            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-700 font-bai">Auditoria de Negociações</h3>
+                      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Gestão detalhada de lançamentos</p>
+                    </div>
+                    <button onClick={() => { setIsAddingNegotiation(true); setNoNegAdminAdd(false); }} className="px-4 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-100 transition-colors uppercase font-bai">adicionar</button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select 
+                      value={adminNegFilterRole}
+                      onChange={(e) => setAdminNegFilterRole(e.target.value as UserRole | 'all')}
+                      className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] bg-slate-50"
+                    >
+                      <option value="all">Filtrar: Todos</option>
+                      <option value="associate">Apenas Associados</option>
+                      <option value="supplier">Apenas Fornecedores</option>
+                    </select>
+                    <input 
+                      type="text"
+                      placeholder="Pesquisar..."
+                      value={adminNegSearchTerm}
+                      onChange={(e) => setAdminNegSearchTerm(e.target.value)}
+                      className="px-4 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] w-full md:w-64 bg-slate-50"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                       <tr>
+                         <th className="px-6 py-4 border-b">Fornecedor</th>
+                         <th className="px-6 py-4 border-b">Associado</th>
+                         <th className="px-6 py-4 border-b">Valor</th>
+                         <th className="px-6 py-4 border-b">Data/Hora</th>
+                         <th className="px-6 py-4 border-b text-right">Ações</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100 text-sm">
+                       {filteredNegotiations.map(n => {
+                         const assoc = users.find(u => u.cnpj === n.companyCnpj);
+                         const supp = users.find(u => u.cnpj === n.supplierCnpj);
+                         return (
+                           <tr key={n.id} className="hover:bg-slate-50 group">
+                             <td className="px-6 py-4 font-bold text-slate-800">{supp?.tradingName}</td>
+                             <td className="px-6 py-4 text-slate-600">{assoc?.tradingName}</td>
+                             <td className="px-6 py-4 font-bold text-[#b41e45]">
+                               {n.amount === null ? <span className="text-slate-400 italic font-normal">Sem Negociação</span> : n.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                             </td>
+                             <td className="px-6 py-4 text-slate-400 text-xs">{new Date(n.timestamp).toLocaleString('pt-BR')}</td>
+                             <td className="px-6 py-4 text-right space-x-3">
+                               <button onClick={() => setEditingNegotiation(n)} className="text-blue-600 font-bold text-[10px] uppercase tracking-wider hover:underline">Editar</button>
+                               <button onClick={() => handleAdminDeleteNegotiation(n.id)} className="text-red-500 font-bold text-[10px] uppercase tracking-wider hover:underline">Excluir</button>
+                             </td>
+                           </tr>
+                         );
+                       })}
+                       {filteredNegotiations.length === 0 && (
+                         <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Nenhum registro encontrado para este filtro.</td></tr>
+                       )}
+                     </tbody>
+                   </table>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-700 font-bai">Empresas Participantes</h3>
+                      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Base de dados cadastrada</p>
+                    </div>
+                    <button onClick={() => setIsAddingCompany(true)} className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-100 transition-colors uppercase font-bai">adicionar</button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <select 
+                      value={adminFilterRole}
+                      onChange={(e) => setAdminFilterRole(e.target.value as UserRole | 'all')}
+                      className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] bg-slate-50"
+                    >
+                      <option value="all">Todos os Perfis</option>
+                      <option value="associate">Associados</option>
+                      <option value="supplier">Fornecedores</option>
+                    </select>
+                    <input 
+                      type="text"
+                      placeholder="Buscar empresa..."
+                      value={adminSearchTerm}
+                      onChange={(e) => setAdminSearchTerm(e.target.value)}
+                      className="px-4 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] w-full md:w-64 bg-slate-50"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold tracking-wider">
+                      <tr>
+                        <th className="px-6 py-4">Empresa</th>
+                        <th className="px-6 py-4">CNPJ</th>
+                        <th className="px-6 py-4">Perfil</th>
+                        <th className="px-6 py-4 text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {filteredUsers.map(u => (
+                        <tr key={u.cnpj} className="hover:bg-slate-50">
+                          <td className="px-6 py-4 font-bold text-slate-800">{u.tradingName}</td>
+                          <td className="px-6 py-4 text-slate-500 text-xs font-mono">{u.cnpj}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'associate' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
+                              {u.role === 'associate' ? 'Associado' : 'Fornecedor'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-3">
+                            <button onClick={() => setEditingCompany(u)} className="text-blue-600 text-[10px] font-bold uppercase tracking-wider hover:underline">Editar</button>
+                            <button onClick={() => setSelectedCompanySummary(u)} className="text-[#b41e45] text-[10px] font-bold uppercase tracking-wider hover:underline">Ver Stats</button>
+                            <button onClick={() => handleAdminDeleteCompany(u.cnpj)} className="text-red-500 text-[10px] font-bold uppercase tracking-wider hover:underline">Excluir</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {adminTab === 'config' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
+              <div className="space-y-8">
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                  <div className="flex items-start justify-between mb-6">
+                    <h3 className="text-xl font-bold text-slate-700 font-bai">Controle de Status</h3>
+                    <div className="flex gap-4">
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Associados</p>
+                        <p className="text-lg font-bold text-[#b41e45] leading-none">{assocCount}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">Fornecedores</p>
+                        <p className="text-lg font-bold text-[#b41e45] leading-none">{suppCount}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                      <p className="font-bold text-slate-800 text-sm">Inscrição: Associados</p>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={regSettings.allowAssociate} onChange={(e) => setRegSettings({...regSettings, allowAssociate: e.target.checked})} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                      <p className="font-bold text-slate-800 text-sm">Inscrição: Fornecedores</p>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={regSettings.allowSupplier} onChange={(e) => setRegSettings({...regSettings, allowSupplier: e.target.checked})} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-white border-2 border-slate-100 rounded-xl shadow-sm">
+                      <p className="font-bold text-[#b41e45] text-sm">Lançamento de Negociações</p>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={regSettings.allowNegotiations} onChange={(e) => setRegSettings({...regSettings, allowNegotiations: e.target.checked})} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-xl font-bold text-slate-700 mb-6 font-bai uppercase tracking-wide">Exportar Dados Offline</h3>
+                  <div className="space-y-4">
+                    <p className="text-sm text-slate-500">Baixe o backup completo de todas as negociações em formato CSV para análise no Excel.</p>
+                    <Button onClick={exportToCSV} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg py-4">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                      Baixar Planilha CSV
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                  <h3 className="text-xl font-bold text-slate-700 mb-2 font-bai uppercase tracking-wide">Integração Google Sheets</h3>
+                  <p className="text-sm text-slate-500 mb-6">Os lançamentos de negociações serão espelhados automaticamente em sua planilha via Webhook.</p>
+                  
+                  <div className="space-y-4">
+                    <Input 
+                      label="URL do Apps Script (Webhook)" 
+                      name="webhookUrl" 
+                      value={regSettings.googleSheetsWebhookUrl || ''} 
+                      onChange={(e) => setRegSettings({...regSettings, googleSheetsWebhookUrl: e.target.value})}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                    />
+                    
+                    <div className="pt-2">
+                      <button 
+                        onClick={() => setShowWebhookInstructions(!showWebhookInstructions)}
+                        className="text-xs font-bold text-[#b41e45] uppercase tracking-widest hover:underline flex items-center gap-1"
+                      >
+                        {showWebhookInstructions ? 'Esconder Configuração' : 'Como configurar a planilha?'}
+                        <svg className={`w-3 h-3 transition-transform ${showWebhookInstructions ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                    </div>
+
+                    {showWebhookInstructions && (
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="text-xs text-slate-600 space-y-2">
+                          <p><strong>Passo 1:</strong> No Google Sheets, vá em <em>Extensões &gt; Apps Script</em>.</p>
+                          <p><strong>Passo 2:</strong> Cole o código abaixo, salve e clique em <em>Implantar &gt; Nova Implantação</em>.</p>
+                          <p><strong>Passo 3:</strong> Escolha "App da Web" e configure para que "Qualquer Pessoa" tenha acesso.</p>
+                        </div>
+                        <div className="relative group">
+                          <pre className="text-[10px] bg-slate-900 text-emerald-400 p-3 rounded-lg overflow-x-auto font-mono">
+                            {googleScriptTemplate}
+                          </pre>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(googleScriptTemplate);
+                              alert('Código copiado!');
+                            }}
+                            className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-md transition-colors"
+                          >
+                            Copiar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </main>
+
+        {/* MODAIS ADMIN */}
+        {isAddingCompany && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+              <h3 className="text-xl font-bold mb-6 font-bai">Cadastrar Empresa</h3>
+              <form onSubmit={handleAdminAddCompany} className="space-y-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Tipo de Perfil</label>
+                  <select name="role" className="px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-[#b41e45]" required>
+                    <option value="">Selecione...</option>
+                    <option value="associate">Associado (Comprador)</option>
+                    <option value="supplier">Fornecedor (Vendedor)</option>
+                  </select>
+                </div>
+                <Input label="CNPJ" name="cnpj" placeholder="00.000.000/0000-00" required />
+                <Input label="Nome Fantasia" name="tradingName" onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())} required />
+                <Input label="Senha Provisória" name="password" type="text" defaultValue="123456" required />
+                <div className="flex gap-4 pt-4">
+                  <Button type="submit" className="flex-1">Salvar</Button>
+                  <Button variant="ghost" onClick={() => setIsAddingCompany(false)} className="flex-1">Cancelar</Button>
+                </div>
+              </form>
+>>>>>>> parent of 45f4648 (Add files via upload)
             </div>
           </div>
         )}
