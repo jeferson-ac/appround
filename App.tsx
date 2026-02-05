@@ -1,30 +1,21 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Company, AppView, Negotiation, UserRole, RegistrationSettings } from './types';
 import { STORAGE_KEYS, ADMIN_CREDENTIALS } from './constants';
 import { Input } from './components/Input';
 import { Button } from './components/Button';
 import { getBusinessInsights } from './services/geminiService';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import { db, collection, onSnapshot, query, doc, setDoc, deleteDoc, updateDoc } from './services/firebase';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   Cell,
   LabelList
 } from 'recharts';
-
-/**
- * GUIA PARA HOSPEDAGEM ONLINE:
- * 1. Suba este código para um repositório no GitHub.
- * 2. Conecte o repositório na Vercel (vercel.com).
- * 3. Configure a variável de ambiente API_KEY no painel da Vercel.
- * 4. Para multi-usuário (dados compartilhados), substitua os 'localStorage' 
- *    abaixo por chamadas ao Firebase Firestore ou Supabase.
- */
 
 const Logo = ({ className = "" }: { className?: string }) => (
   <div className={`flex items-baseline gap-1 select-none font-bai ${className}`}>
@@ -87,40 +78,48 @@ const App: React.FC = () => {
 
   const currentYear = new Date().getFullYear();
 
-  // Load Data
+  // 🔥 FIREBASE REAL-TIME SYNC
   useEffect(() => {
-    const storedUsers = localStorage.getItem(STORAGE_KEYS.COMPANIES);
-    const storedNegotiations = localStorage.getItem(STORAGE_KEYS.NEGOTIATIONS);
-    const storedCurrentUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-    const storedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-    const welcomeHidden = localStorage.getItem(STORAGE_KEYS.WELCOME_HIDDEN);
+    // Sincronizar Usuários/Empresas
+    const unsubCompanies = onSnapshot(collection(db, "companies"), (snapshot) => {
+      const companiesData = snapshot.docs.map(doc => doc.data() as Company);
+      setUsers(companiesData);
 
-    if (storedUsers) setUsers(JSON.parse(storedUsers));
-    if (storedNegotiations) setNegotiations(JSON.parse(storedNegotiations));
-    if (storedSettings) setRegSettings(JSON.parse(storedSettings));
-    if (welcomeHidden === 'true') setIsWelcomeVisible(false);
-    
-    if (storedCurrentUser) {
-      const parsedUser = JSON.parse(storedCurrentUser);
-      const verifiedUser = JSON.parse(storedUsers || '[]').find((u: Company) => u.cnpj === parsedUser.cnpj);
-      if (verifiedUser) {
-        setCurrentUser(verifiedUser);
-        setView('dashboard');
+      // Tentar restaurar sessão
+      const storedUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      if (storedUser && !currentUser) {
+        const parsed = JSON.parse(storedUser);
+        const cloudUser = companiesData.find(u => u.cnpj === parsed.cnpj);
+        if (cloudUser) {
+          setCurrentUser(cloudUser);
+          setView('dashboard');
+        }
       }
-    }
-  }, []);
+    });
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.COMPANIES, JSON.stringify(users));
-  }, [users]);
+    // Sincronizar Negociações
+    const unsubNegs = onSnapshot(collection(db, "negotiations"), (snapshot) => {
+      const negsData = snapshot.docs.map(doc => doc.data() as Negotiation);
+      setNegotiations(negsData);
+    });
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.NEGOTIATIONS, JSON.stringify(negotiations));
-  }, [negotiations]);
+    // Sincronizar Configurações
+    const unsubSettings = onSnapshot(doc(db, "config", "settings"), (snapshot) => {
+      if (snapshot.exists()) {
+        setRegSettings(snapshot.data() as RegistrationSettings);
+      }
+    });
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(regSettings));
-  }, [regSettings]);
+    // Estado do Welcome (Local)
+    const welcomeHidden = localStorage.getItem(STORAGE_KEYS.WELCOME_HIDDEN);
+    if (welcomeHidden === 'true') setIsWelcomeVisible(false);
+
+    return () => {
+      unsubCompanies();
+      unsubNegs();
+      unsubSettings();
+    };
+  }, [currentUser]);
 
   const handleDismissWelcome = () => {
     setIsWelcomeVisible(false);
@@ -139,7 +138,7 @@ const App: React.FC = () => {
         associateName: assoc?.tradingName || 'N/A',
         supplierName: supp?.tradingName || 'N/A',
         amount: negotiation.amount,
-        formattedAmount: negotiation.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+        formattedAmount: (negotiation.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
         timestamp: negotiation.timestamp,
         formattedDate: new Date(negotiation.timestamp).toLocaleString('pt-BR'),
         notes: negotiation.notes || ''
@@ -156,7 +155,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegister = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const cnpj = formData.get('cnpj') as string;
@@ -178,7 +177,7 @@ const App: React.FC = () => {
     }
 
     const newUser: Company = { cnpj, tradingName, phone, email, password, role };
-    setUsers(prev => [...prev, newUser]);
+    await setDoc(doc(db, "companies", cnpj), newUser);
     alert('Cadastro realizado com sucesso! Use seu CNPJ e senha para entrar.');
     setView('login');
   };
@@ -237,7 +236,7 @@ const App: React.FC = () => {
         n.companyCnpj,
         supp?.tradingName || 'N/A',
         n.supplierCnpj,
-        n.amount.toFixed(2),
+        (n.amount || 0).toFixed(2),
         new Date(n.timestamp).toLocaleString('pt-BR'),
         (n.notes || '').replace(/"/g, '""')
       ];
@@ -276,11 +275,6 @@ const App: React.FC = () => {
       return;
     }
 
-    if (amount <= 0) {
-      alert('Informe um valor de negociação válido.');
-      return;
-    }
-
     const alreadyExists = negotiations.some(n => n.companyCnpj === currentUser.cnpj && n.supplierCnpj === supplierCnpj);
     if (alreadyExists) {
       alert('Já existe um registro de negociação com este fornecedor hoje.');
@@ -296,7 +290,7 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString(),
     };
 
-    setNegotiations(prev => [...prev, newNeg]);
+    await setDoc(doc(db, "negotiations", newNeg.id), newNeg);
     setSelectedSupplierCnpj('');
     setAmountMask('');
     (e.target as HTMLFormElement).reset();
@@ -311,24 +305,23 @@ const App: React.FC = () => {
     formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // FUNÇÕES DE EXCLUSÃO CORRIGIDAS
-  const handleAdminDeleteNegotiation = (id: string) => {
+  const handleAdminDeleteNegotiation = async (id: string) => {
     if (window.confirm('Confirma a exclusão permanente deste registro de negociação?')) {
-      setNegotiations(prev => {
-        const filtered = prev.filter(n => n.id !== id);
-        return [...filtered];
-      });
+      await deleteDoc(doc(db, "negotiations", id));
     }
   };
 
-  const handleAdminDeleteCompany = (cnpj: string) => {
+  const handleAdminDeleteCompany = async (cnpj: string) => {
     if (window.confirm('Atenção: A exclusão da empresa removerá também todos os seus lançamentos de negociação. Confirmar?')) {
-      setUsers(prev => prev.filter(u => u.cnpj !== cnpj));
-      setNegotiations(prev => prev.filter(n => n.companyCnpj !== cnpj && n.supplierCnpj !== cnpj));
+      await deleteDoc(doc(db, "companies", cnpj));
+      const related = negotiations.filter(n => n.companyCnpj === cnpj || n.supplierCnpj === cnpj);
+      for (const neg of related) {
+        await deleteDoc(doc(db, "negotiations", neg.id));
+      }
     }
   };
 
-  const handleAdminUpdateNegotiation = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAdminUpdateNegotiation = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingNegotiation) return;
 
@@ -336,9 +329,7 @@ const App: React.FC = () => {
     const amount = parseCurrencyBRL(editAmountMask);
     const notes = formData.get('notes') as string;
 
-    setNegotiations(prev => prev.map(n => 
-      n.id === editingNegotiation.id ? { ...n, amount, notes } : n
-    ));
+    await updateDoc(doc(db, "negotiations", editingNegotiation.id), { amount, notes });
     setEditingNegotiation(null);
   };
 
@@ -350,7 +341,7 @@ const App: React.FC = () => {
     const amount = parseCurrencyBRL(addNegAmountMask);
     const notes = formData.get('notes') as string;
 
-    if (!companyCnpj || !supplierCnpj || amount <= 0) {
+    if (!companyCnpj || !supplierCnpj) {
       alert('Preencha todos os campos obrigatórios corretamente.');
       return;
     }
@@ -364,7 +355,7 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString(),
     };
 
-    setNegotiations(prev => [...prev, newNeg]);
+    await setDoc(doc(db, "negotiations", newNeg.id), newNeg);
     setIsAddingNegotiation(false);
     setAddNegAmountMask('');
     
@@ -373,7 +364,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAdminAddCompany = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAdminAddCompany = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const cnpj = formData.get('cnpj') as string;
@@ -394,12 +385,12 @@ const App: React.FC = () => {
     }
 
     const newCompany: Company = { cnpj, tradingName, phone, email, password, role };
-    setUsers(prev => [...prev, newCompany]);
+    await setDoc(doc(db, "companies", cnpj), newCompany);
     setIsAddingCompany(false);
     alert('Empresa adicionada com sucesso!');
   };
 
-  const handleAdminUpdateCompany = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAdminUpdateCompany = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingCompany) return;
 
@@ -413,9 +404,13 @@ const App: React.FC = () => {
       role: formData.get('role') as UserRole,
     };
 
-    setUsers(prev => prev.map(u => u.cnpj === editingCompany.cnpj ? updatedCompany : u));
+    await setDoc(doc(db, "companies", editingCompany.cnpj), updatedCompany);
     setEditingCompany(null);
     alert('Dados da empresa atualizados com sucesso!');
+  };
+
+  const handleUpdateSettings = async (newSettings: RegistrationSettings) => {
+    await setDoc(doc(db, "config", "settings"), newSettings);
   };
 
   const filteredUsers = users.filter(u => {
@@ -450,7 +445,7 @@ const App: React.FC = () => {
   const getCompanySummaryData = (company: Company) => {
     const isAssoc = company.role === 'associate';
     const compNegs = negotiations.filter(n => isAssoc ? n.companyCnpj === company.cnpj : n.supplierCnpj === company.cnpj);
-    const totalValue = compNegs.reduce((sum, n) => sum + n.amount, 0);
+    const totalValue = compNegs.reduce((sum, n) => sum + (n.amount || 0), 0);
     const uniquePartners = new Set(compNegs.map(n => isAssoc ? n.supplierCnpj : n.companyCnpj)).size;
     const totalPotentialPartners = users.filter(u => isAssoc ? u.role === 'supplier' : u.role === 'associate').length;
     
@@ -459,20 +454,6 @@ const App: React.FC = () => {
 
   const associates = useMemo(() => users.filter(u => u.role === 'associate'), [users]);
   const suppliers = useMemo(() => users.filter(u => u.role === 'supplier'), [users]);
-
-  const adminSupplierStats = useMemo(() => {
-    return suppliers.map(s => ({
-      name: s.tradingName,
-      value: negotiations.filter(n => n.supplierCnpj === s.cnpj).reduce((sum, n) => sum + n.amount, 0)
-    })).filter(s => s.value > 0).sort((a, b) => b.value - a.value);
-  }, [suppliers, negotiations]);
-
-  const adminAssociateStats = useMemo(() => {
-    return associates.map(a => ({
-      name: a.tradingName,
-      value: negotiations.filter(n => n.companyCnpj === a.cnpj).reduce((sum, n) => sum + n.amount, 0)
-    })).filter(a => a.value > 0).sort((a, b) => b.value - a.value);
-  }, [associates, negotiations]);
 
   const adminSupplierPositivationList = useMemo(() => {
     const totalAssociates = associates.length;
@@ -513,7 +494,6 @@ const App: React.FC = () => {
 
     let userNegotiations: Negotiation[] = [];
     let counterLabel = "";
-    let pendingList: Company[] = [];
     let partnerList: Company[] = [];
 
     if (currentUser.role === 'associate') {
@@ -526,16 +506,16 @@ const App: React.FC = () => {
       partnerList = associates;
     }
 
-    const totalAmount = userNegotiations.reduce((acc, n) => acc + n.amount, 0);
+    const totalAmount = userNegotiations.reduce((acc, n) => acc + (n.amount || 0), 0);
     const negotiatedPartnersCnpjs = new Set(userNegotiations.map(n => currentUser.role === 'associate' ? n.supplierCnpj : n.companyCnpj));
     const counterValue = negotiatedPartnersCnpjs.size;
-    pendingList = partnerList.filter(p => !negotiatedPartnersCnpjs.has(p.cnpj));
+    const pendingList = partnerList.filter(p => !negotiatedPartnersCnpjs.has(p.cnpj));
     const historyList = [...userNegotiations].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     const chartData = partnerList.map(other => {
       const total = userNegotiations
         .filter(n => (currentUser.role === 'associate' ? n.supplierCnpj : n.companyCnpj) === other.cnpj)
-        .reduce((sum, n) => sum + n.amount, 0);
+        .reduce((sum, n) => sum + (n.amount || 0), 0);
       return { name: other.tradingName, total };
     }).filter(d => d.total > 0);
 
@@ -570,7 +550,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (editingNegotiation) {
-      setEditAmountMask(formatCurrencyBRL((editingNegotiation.amount * 100).toString()));
+      setEditAmountMask(formatCurrencyBRL(((editingNegotiation.amount || 0) * 100).toString()));
     }
   }, [editingNegotiation]);
 
@@ -603,7 +583,7 @@ const App: React.FC = () => {
             <form onSubmit={handleAdminLogin} className="space-y-4">
               <Input label="Usuário" name="user" required />
               <Input label="Senha" name="password" type="password" required />
-              {authError && <p className="text-red-500 text-sm">{authError}</p>}
+              {authError && <p className="text-red-500 text-sm font-medium">{authError}</p>}
               <Button type="submit" className="w-full">Entrar no Painel</Button>
               <Button variant="ghost" onClick={() => { setView('login'); setAuthError(''); }} className="w-full">Voltar ao Login</Button>
             </form>
@@ -612,7 +592,7 @@ const App: React.FC = () => {
       );
     }
 
-    const totalNegotiatedAll = negotiations.reduce((acc, n) => acc + n.amount, 0);
+    const totalNegotiatedAll = negotiations.reduce((acc, n) => acc + (n.amount || 0), 0);
     const avgNegotiationValue = negotiations.length > 0 ? totalNegotiatedAll / negotiations.length : 0;
     const assocCount = users.filter(u => u.role === 'associate').length;
     const suppCount = users.filter(u => u.role === 'supplier').length;
@@ -676,7 +656,6 @@ const App: React.FC = () => {
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
                   <div className="mb-6">
                     <h3 className="text-lg font-bold text-slate-700 font-bai uppercase tracking-wide">Positivação de Fornecedores</h3>
-                    <p className="text-xs text-slate-400 font-bold">Total de Associados na Base: <span className="text-[#b41e45]">{associates.length}</span></p>
                   </div>
                   <div className="h-[450px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -684,22 +663,7 @@ const App: React.FC = () => {
                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 10}} axisLine={false} tickLine={false} />
-                        <Tooltip 
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div className="bg-white p-3 shadow-xl rounded-lg border border-slate-100 text-xs">
-                                  <p className="font-bold text-slate-800 mb-1">{data.name}</p>
-                                  <p className="text-[#b41e45]">Associados Atendidos: {data.negociados}</p>
-                                  <p className="text-slate-400">Faltam: {data.faltantes}</p>
-                                  <p className="mt-1 border-t pt-1 font-bold">Base Total: {data.totalBase}</p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
+                        <Tooltip />
                         <Bar dataKey="negociados" fill="#b41e45" radius={[0, 4, 4, 0]} barSize={20}>
                           <LabelList dataKey="displayLabel" position="right" style={{ fill: '#b41e45', fontSize: '9px', fontWeight: 'bold' }} />
                         </Bar>
@@ -707,11 +671,9 @@ const App: React.FC = () => {
                     </ResponsiveContainer>
                   </div>
                 </div>
-
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
                   <div className="mb-6">
                     <h3 className="text-lg font-bold text-slate-700 font-bai uppercase tracking-wide">Positivação de Associados</h3>
-                    <p className="text-xs text-slate-400 font-bold">Total de Fornecedores na Base: <span className="text-blue-600">{suppliers.length}</span></p>
                   </div>
                   <div className="h-[450px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -719,22 +681,7 @@ const App: React.FC = () => {
                         <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
                         <XAxis type="number" hide />
                         <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 10}} axisLine={false} tickLine={false} />
-                        <Tooltip 
-                          content={({ active, payload }) => {
-                            if (active && payload && payload.length) {
-                              const data = payload[0].payload;
-                              return (
-                                <div className="bg-white p-3 shadow-xl rounded-lg border border-slate-100 text-xs">
-                                  <p className="font-bold text-slate-800 mb-1">{data.name}</p>
-                                  <p className="text-blue-600">Fornecedores Atendidos: {data.negociados}</p>
-                                  <p className="text-slate-400">Faltam: {data.faltantes}</p>
-                                  <p className="mt-1 border-t pt-1 font-bold">Base Total: {data.totalBase}</p>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
+                        <Tooltip />
                         <Bar dataKey="negociados" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={20}>
                           <LabelList dataKey="displayLabel" position="right" style={{ fill: '#3b82f6', fontSize: '9px', fontWeight: 'bold' }} />
                         </Bar>
@@ -753,20 +700,10 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-4">
                     <div>
                       <h3 className="text-xl font-bold text-slate-700 font-bai">Auditoria de Negociações</h3>
-                      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Gestão detalhada de lançamentos</p>
                     </div>
                     <button onClick={() => setIsAddingNegotiation(true)} className="px-4 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-100 transition-colors uppercase font-bai">adicionar</button>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <select 
-                      value={adminNegFilterRole}
-                      onChange={(e) => setAdminNegFilterRole(e.target.value as UserRole | 'all')}
-                      className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] bg-slate-50"
-                    >
-                      <option value="all">Filtrar: Todos</option>
-                      <option value="associate">Apenas Associados</option>
-                      <option value="supplier">Apenas Fornecedores</option>
-                    </select>
                     <input 
                       type="text"
                       placeholder="Pesquisar..."
@@ -783,7 +720,6 @@ const App: React.FC = () => {
                          <th className="px-6 py-4 border-b">Fornecedor</th>
                          <th className="px-6 py-4 border-b">Associado</th>
                          <th className="px-6 py-4 border-b">Valor</th>
-                         <th className="px-6 py-4 border-b">Data/Hora</th>
                          <th className="px-6 py-4 border-b text-right">Ações</th>
                        </tr>
                      </thead>
@@ -795,18 +731,14 @@ const App: React.FC = () => {
                            <tr key={n.id} className="hover:bg-slate-50 group">
                              <td className="px-6 py-4 font-bold text-slate-800">{supp?.tradingName}</td>
                              <td className="px-6 py-4 text-slate-600">{assoc?.tradingName}</td>
-                             <td className="px-6 py-4 font-bold text-[#b41e45]">{n.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                             <td className="px-6 py-4 text-slate-400 text-xs">{new Date(n.timestamp).toLocaleString('pt-BR')}</td>
+                             <td className="px-6 py-4 font-bold text-[#b41e45]">{(n.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                              <td className="px-6 py-4 text-right space-x-3">
-                               <button onClick={() => setEditingNegotiation(n)} className="text-blue-600 font-bold text-[10px] uppercase tracking-wider hover:underline">Editar</button>
-                               <button onClick={() => handleAdminDeleteNegotiation(n.id)} className="text-red-500 font-bold text-[10px] uppercase tracking-wider hover:underline">Excluir</button>
+                               <button onClick={() => setEditingNegotiation(n)} className="text-blue-600 font-bold text-[10px] uppercase hover:underline">Editar</button>
+                               <button onClick={() => handleAdminDeleteNegotiation(n.id)} className="text-red-500 font-bold text-[10px] uppercase hover:underline">Excluir</button>
                              </td>
                            </tr>
                          );
                        })}
-                       {filteredNegotiations.length === 0 && (
-                         <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">Nenhum registro encontrado para este filtro.</td></tr>
-                       )}
                      </tbody>
                    </table>
                 </div>
@@ -816,29 +748,17 @@ const App: React.FC = () => {
                 <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-4">
                     <div>
-                      <h3 className="text-xl font-bold text-slate-700 font-bai">Empresas Participantes</h3>
-                      <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Base de dados cadastrada</p>
+                      <h3 className="text-xl font-bold text-slate-700 font-bai">Empresas Cadastradas</h3>
                     </div>
                     <button onClick={() => setIsAddingCompany(true)} className="px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-100 transition-colors uppercase font-bai">adicionar</button>
                   </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <select 
-                      value={adminFilterRole}
-                      onChange={(e) => setAdminFilterRole(e.target.value as UserRole | 'all')}
-                      className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] bg-slate-50"
-                    >
-                      <option value="all">Todos os Perfis</option>
-                      <option value="associate">Associados</option>
-                      <option value="supplier">Fornecedores</option>
-                    </select>
-                    <input 
-                      type="text"
-                      placeholder="Buscar empresa..."
-                      value={adminSearchTerm}
-                      onChange={(e) => setAdminSearchTerm(e.target.value)}
-                      className="px-4 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] w-full md:w-64 bg-slate-50"
-                    />
-                  </div>
+                  <input 
+                    type="text"
+                    placeholder="Buscar empresa..."
+                    value={adminSearchTerm}
+                    onChange={(e) => setAdminSearchTerm(e.target.value)}
+                    className="px-4 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-[#b41e45] w-full md:w-64 bg-slate-50"
+                  />
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
@@ -846,7 +766,6 @@ const App: React.FC = () => {
                       <tr>
                         <th className="px-6 py-4">Empresa</th>
                         <th className="px-6 py-4">CNPJ</th>
-                        <th className="px-6 py-4">Perfil</th>
                         <th className="px-6 py-4 text-right">Ações</th>
                       </tr>
                     </thead>
@@ -854,16 +773,10 @@ const App: React.FC = () => {
                       {filteredUsers.map(u => (
                         <tr key={u.cnpj} className="hover:bg-slate-50">
                           <td className="px-6 py-4 font-bold text-slate-800">{u.tradingName}</td>
-                          <td className="px-6 py-4 text-slate-500 text-xs font-mono">{u.cnpj}</td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${u.role === 'associate' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>
-                              {u.role === 'associate' ? 'Associado' : 'Fornecedor'}
-                            </span>
-                          </td>
+                          <td className="px-6 py-4 text-slate-500 text-xs">{u.cnpj}</td>
                           <td className="px-6 py-4 text-right space-x-3">
-                            <button onClick={() => setEditingCompany(u)} className="text-blue-600 text-[10px] font-bold uppercase tracking-wider hover:underline">Editar</button>
-                            <button onClick={() => setSelectedCompanySummary(u)} className="text-[#b41e45] text-[10px] font-bold uppercase tracking-wider hover:underline">Ver Stats</button>
-                            <button onClick={() => handleAdminDeleteCompany(u.cnpj)} className="text-red-500 text-[10px] font-bold uppercase tracking-wider hover:underline">Excluir</button>
+                            <button onClick={() => setEditingCompany(u)} className="text-blue-600 text-[10px] font-bold uppercase hover:underline">Editar</button>
+                            <button onClick={() => handleAdminDeleteCompany(u.cnpj)} className="text-red-500 text-[10px] font-bold uppercase hover:underline">Excluir</button>
                           </td>
                         </tr>
                       ))}
@@ -875,131 +788,40 @@ const App: React.FC = () => {
           )}
 
           {adminTab === 'config' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-in fade-in duration-500">
-              <div className="space-y-8">
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-                  <div className="flex items-start justify-between mb-6">
-                    <h3 className="text-xl font-bold text-slate-700 font-bai">Controle de Status</h3>
-                    <div className="flex gap-4">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Associados</p>
-                        <p className="text-lg font-bold text-[#b41e45] leading-none">{assocCount}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase">Fornecedores</p>
-                        <p className="text-lg font-bold text-[#b41e45] leading-none">{suppCount}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-                      <p className="font-bold text-slate-800 text-sm">Inscrição: Associados</p>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={regSettings.allowAssociate} onChange={(e) => setRegSettings({...regSettings, allowAssociate: e.target.checked})} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
-                      <p className="font-bold text-slate-800 text-sm">Inscrição: Fornecedores</p>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={regSettings.allowSupplier} onChange={(e) => setRegSettings({...regSettings, allowSupplier: e.target.checked})} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
-                      </label>
-                    </div>
-                    <div className="flex items-center justify-between p-4 bg-white border-2 border-slate-100 rounded-xl shadow-sm">
-                      <p className="font-bold text-[#b41e45] text-sm">Lançamento de Negociações</p>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={regSettings.allowNegotiations} onChange={(e) => setRegSettings({...regSettings, allowNegotiations: e.target.checked})} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-[#b41e45] peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
-                      </label>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <h3 className="text-xl font-bold text-slate-700 font-bai uppercase tracking-wide">Configurações Gerais</h3>
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                  <p className="font-bold text-slate-800 text-sm">Permitir Lançamento de Negociações</p>
+                  <input type="checkbox" checked={regSettings.allowNegotiations} onChange={(e) => handleUpdateSettings({...regSettings, allowNegotiations: e.target.checked})} className="w-6 h-6 accent-[#b41e45]" />
                 </div>
-
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-                  <h3 className="text-xl font-bold text-slate-700 mb-6 font-bai uppercase tracking-wide">Exportar Dados Offline</h3>
-                  <div className="space-y-4">
-                    <p className="text-sm text-slate-500">Baixe o backup completo de todas as negociações em formato CSV para análise no Excel.</p>
-                    <Button onClick={exportToCSV} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg py-4">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                      Baixar Planilha CSV
-                    </Button>
-                  </div>
-                </div>
+                <Input label="Webhook URL Google Sheets" value={regSettings.googleSheetsWebhookUrl || ''} onChange={(e) => handleUpdateSettings({...regSettings, googleSheetsWebhookUrl: e.target.value})} />
+                <Button onClick={exportToCSV} variant="secondary" className="w-full">Exportar Backup CSV</Button>
               </div>
-
-              <div className="space-y-8">
-                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-                  <h3 className="text-xl font-bold text-slate-700 mb-2 font-bai uppercase tracking-wide">Integração Google Sheets</h3>
-                  <p className="text-sm text-slate-500 mb-6">Os lançamentos de negociações serão espelhados automaticamente em sua planilha via Webhook.</p>
-                  
-                  <div className="space-y-4">
-                    <Input 
-                      label="URL do Apps Script (Webhook)" 
-                      name="webhookUrl" 
-                      value={regSettings.googleSheetsWebhookUrl || ''} 
-                      onChange={(e) => setRegSettings({...regSettings, googleSheetsWebhookUrl: e.target.value})}
-                      placeholder="https://script.google.com/macros/s/.../exec"
-                    />
-                    
-                    <div className="pt-2">
-                      <button 
-                        onClick={() => setShowWebhookInstructions(!showWebhookInstructions)}
-                        className="text-xs font-bold text-[#b41e45] uppercase tracking-widest hover:underline flex items-center gap-1"
-                      >
-                        {showWebhookInstructions ? 'Esconder Configuração' : 'Como configurar a planilha?'}
-                        <svg className={`w-3 h-3 transition-transform ${showWebhookInstructions ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                      </button>
-                    </div>
-
-                    {showWebhookInstructions && (
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="text-xs text-slate-600 space-y-2">
-                          <p><strong>Passo 1:</strong> No Google Sheets, vá em Extensões e Apps Script.</p>
-                          <p><strong>Passo 2:</strong> Cole o código abaixo, salve e clique em Implantar e Nova Implantação.</p>
-                          <p><strong>Passo 3:</strong> Escolha "App da Web" e configure para que "Qualquer Pessoa" tenha acesso.</p>
-                        </div>
-                        <div className="relative group">
-                          <pre className="text-[10px] bg-slate-900 text-emerald-400 p-3 rounded-lg overflow-x-auto font-mono">
-                            {googleScriptTemplate}
-                          </pre>
-                          <button 
-                            onClick={() => {
-                              navigator.clipboard.writeText(googleScriptTemplate);
-                              alert('Código copiado!');
-                            }}
-                            className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-md transition-colors"
-                          >
-                            Copiar
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="text-xl font-bold text-slate-700 mb-4 font-bai uppercase tracking-wide">Ajuda Webhook</h3>
+                <div className="text-xs text-slate-600 bg-slate-50 p-4 rounded-xl space-y-2">
+                  <p>Use este código no seu Google Apps Script:</p>
+                  <pre className="text-[9px] bg-slate-900 text-emerald-400 p-3 rounded-lg overflow-x-auto">{googleScriptTemplate}</pre>
                 </div>
               </div>
             </div>
           )}
-
         </main>
 
         {/* MODAIS ADMIN */}
         {isAddingCompany && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold mb-6 font-bai">Cadastrar Empresa</h3>
               <form onSubmit={handleAdminAddCompany} className="space-y-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Tipo de Perfil</label>
-                  <select name="role" className="px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 outline-none focus:ring-2 focus:ring-[#b41e45]" required>
-                    <option value="">Selecione...</option>
-                    <option value="associate">Associado (Comprador)</option>
-                    <option value="supplier">Fornecedor (Vendedor)</option>
-                  </select>
-                </div>
-                <Input label="CNPJ" name="cnpj" placeholder="00.000.000/0000-00" required />
+                <Input label="CNPJ" name="cnpj" required />
                 <Input label="Nome Fantasia" name="tradingName" onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())} required />
-                <Input label="Senha Provisória" name="password" type="text" defaultValue="123456" required />
+                <select name="role" className="w-full p-2 border rounded-lg bg-slate-50 font-bai" required>
+                  <option value="associate">Associado</option>
+                  <option value="supplier">Fornecedor</option>
+                </select>
+                <Input label="Senha" name="password" type="text" defaultValue="123456" required />
                 <div className="flex gap-4 pt-4">
                   <Button type="submit" className="flex-1">Salvar</Button>
                   <Button variant="ghost" onClick={() => setIsAddingCompany(false)} className="flex-1">Cancelar</Button>
@@ -1011,64 +833,33 @@ const App: React.FC = () => {
 
         {isAddingNegotiation && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold mb-6 font-bai">Novo Lançamento Manual</h3>
               <form onSubmit={handleAdminAddNegotiation} className="space-y-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Associado</label>
-                  <select name="companyCnpj" className="px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 outline-none" required>
-                    <option value="">Selecione...</option>
-                    {associates.map(a => <option key={a.cnpj} value={a.cnpj}>{a.tradingName}</option>)}
-                  </select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Fornecedor</label>
-                  <select name="supplierCnpj" className="px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 outline-none" required>
-                    <option value="">Selecione...</option>
-                    {suppliers.map(s => <option key={s.cnpj} value={s.cnpj}>{s.tradingName}</option>)}
-                  </select>
-                </div>
-                <Input label="Valor" name="amount" value={addNegAmountMask} onChange={handleAddNegAmountChange} placeholder="R$ 0,00" required />
+                <select name="companyCnpj" className="w-full p-2 border rounded-lg bg-slate-50" required>
+                  <option value="">Selecione o Associado...</option>
+                  {associates.map(a => <option key={a.cnpj} value={a.cnpj}>{a.tradingName}</option>)}
+                </select>
+                <select name="supplierCnpj" className="w-full p-2 border rounded-lg bg-slate-50" required>
+                  <option value="">Selecione o Fornecedor...</option>
+                  {suppliers.map(s => <option key={s.cnpj} value={s.cnpj}>{s.tradingName}</option>)}
+                </select>
+                <Input label="Valor" value={addNegAmountMask} onChange={handleAddNegAmountChange} required />
                 <div className="flex gap-4 pt-4">
                   <Button type="submit" className="flex-1">Lançar</Button>
-                  <Button variant="ghost" onClick={() => { setIsAddingNegotiation(false); setAddNegAmountMask(''); }} className="flex-1">Voltar</Button>
+                  <Button variant="ghost" onClick={() => setIsAddingNegotiation(false)} className="flex-1">Voltar</Button>
                 </div>
               </form>
             </div>
           </div>
         )}
 
-        {selectedCompanySummary && (() => {
-          const stats = getCompanySummaryData(selectedCompanySummary);
-          return (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-              <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative overflow-hidden">
-                <div className="mb-8">
-                  <h3 className="text-2xl font-bold text-slate-800 font-bai">{selectedCompanySummary.tradingName}</h3>
-                  <p className="text-slate-500 text-sm font-mono">{selectedCompanySummary.cnpj}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-4 mb-8">
-                  <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-xs text-slate-400 font-bold uppercase mb-1">Empresas Positivadas</p>
-                    <p className="text-2xl font-bold text-slate-800 font-bai">{stats.uniquePartners} de {stats.totalPotentialPartners}</p>
-                  </div>
-                  <div className="p-6 bg-[#b41e45] rounded-2xl text-white">
-                    <p className="text-xs text-white/70 font-bold uppercase mb-1">Valor Total Movimentado</p>
-                    <p className="text-3xl font-bold font-bai">{stats.totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-                  </div>
-                </div>
-                <Button className="w-full" onClick={() => setSelectedCompanySummary(null)}>Fechar</Button>
-              </div>
-            </div>
-          );
-        })()}
-
         {editingNegotiation && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold mb-6 font-bai">Corrigir Valor</h3>
               <form onSubmit={handleAdminUpdateNegotiation} className="space-y-6">
-                <Input label="Valor Final" name="amount" value={editAmountMask} onChange={handleEditAmountChange} placeholder="R$ 0,00" required />
+                <Input label="Valor Final" value={editAmountMask} onChange={handleEditAmountChange} required />
                 <div className="flex gap-4">
                   <Button type="submit" className="flex-1">Salvar</Button>
                   <Button variant="ghost" onClick={() => setEditingNegotiation(null)} className="flex-1">Cancelar</Button>
@@ -1078,10 +869,25 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <footer className="bg-slate-900 text-slate-500 py-12 mt-16 text-center text-sm">
-          <Logo className="brightness-0 invert opacity-60 mb-4 mx-auto" />
-          <p>© {currentYear} Área Central S.A. | Conectando Redes de Negócios</p>
-        </footer>
+        {editingCompany && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl">
+              <h3 className="text-xl font-bold mb-6 font-bai">Editar Empresa</h3>
+              <form onSubmit={handleAdminUpdateCompany} className="space-y-4">
+                <Input label="Nome Fantasia" name="tradingName" defaultValue={editingCompany.tradingName} required />
+                <select name="role" className="w-full p-2 border rounded-lg bg-slate-50 font-bai" defaultValue={editingCompany.role}>
+                  <option value="associate">Associado</option>
+                  <option value="supplier">Fornecedor</option>
+                </select>
+                <Input label="Senha" name="password" defaultValue={editingCompany.password} required />
+                <div className="flex gap-4 pt-4">
+                  <Button type="submit" className="flex-1">Atualizar</Button>
+                  <Button variant="ghost" onClick={() => setEditingCompany(null)} className="flex-1">Cancelar</Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1111,52 +917,32 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
-        <footer className="bg-slate-900 text-slate-500 py-12 text-center text-sm">
-          <Logo className="brightness-0 invert opacity-60 mb-4 mx-auto" />
-          <p>© {currentYear} Área Central S.A. | Conectando Redes de Negócios</p>
-        </footer>
       </div>
     );
   }
 
   // REGISTER VIEW
   if (view === 'register') {
-    const isAnythingAllowed = regSettings.allowAssociate || regSettings.allowSupplier;
     return (
       <div className="min-h-screen flex flex-col justify-between bg-slate-50">
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
             <div className="flex justify-center mb-8"><Logo /></div>
             <h1 className="text-2xl font-bold text-slate-800 mb-6 text-center font-bai">Inscrição na Rodada</h1>
-            {isAnythingAllowed ? (
-              <form onSubmit={handleRegister} className="space-y-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-semibold text-slate-700">Tipo de Empresa <span className="text-red-500">*</span></label>
-                  <select name="role" className="px-4 py-2 border border-slate-200 rounded-lg bg-slate-50 outline-none font-bai" required>
-                    <option value="">Selecione...</option>
-                    {regSettings.allowAssociate && <option value="associate">Associado (Comprador)</option>}
-                    {regSettings.allowSupplier && <option value="supplier">Fornecedor (Vendedor)</option>}
-                  </select>
-                </div>
-                <Input label="CNPJ" name="cnpj" placeholder="Apenas números" required />
-                <Input label="Nome Fantasia" name="tradingName" onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())} required />
-                <Input label="E-mail de Contato" name="email" type="email" required />
-                <Input label="Crie uma Senha" name="password" type="password" required />
-                <Button type="submit" className="w-full font-bai">Confirmar Inscrição</Button>
-                <Button variant="ghost" type="button" className="w-full font-bai" onClick={() => setView('login')}>Voltar</Button>
-              </form>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-slate-400 italic">As inscrições online estão encerradas no momento.</p>
-                <Button variant="ghost" onClick={() => setView('login')} className="mt-4 mx-auto">Voltar</Button>
-              </div>
-            )}
+            <form onSubmit={handleRegister} className="space-y-4">
+              <select name="role" className="w-full p-2 border rounded-lg bg-slate-50 font-bai" required>
+                <option value="associate">Associado</option>
+                <option value="supplier">Fornecedor</option>
+              </select>
+              <Input label="CNPJ" name="cnpj" required />
+              <Input label="Nome Fantasia" name="tradingName" onInput={(e) => (e.currentTarget.value = e.currentTarget.value.toUpperCase())} required />
+              <Input label="E-mail" name="email" type="email" required />
+              <Input label="Senha" name="password" type="password" required />
+              <Button type="submit" className="w-full font-bai">Confirmar Inscrição</Button>
+              <Button variant="ghost" type="button" className="w-full font-bai" onClick={() => setView('login')}>Voltar</Button>
+            </form>
           </div>
         </div>
-        <footer className="bg-slate-900 text-slate-500 py-12 text-center text-sm">
-          <Logo className="brightness-0 invert opacity-60 mb-4 mx-auto" />
-          <p>© {currentYear} Área Central S.A. | Conectando Redes de Negócios</p>
-        </footer>
       </div>
     );
   }
@@ -1180,30 +966,27 @@ const App: React.FC = () => {
 
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-8 space-y-8 animate-in fade-in duration-700">
         {isWelcomeVisible && (
-          <section className="bg-gradient-to-br from-[#b41e45] to-[#8a1435] rounded-2xl p-6 lg:p-10 text-white shadow-lg relative overflow-hidden group">
-            <button onClick={handleDismissWelcome} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20">
+          <section className="bg-gradient-to-br from-[#b41e45] to-[#8a1435] rounded-2xl p-6 lg:p-10 text-white shadow-lg relative overflow-hidden">
+            <button onClick={handleDismissWelcome} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 z-20">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
-            <div className="relative z-10">
-              <h2 className="text-3xl font-bold mb-2 font-bai">Olá, {currentUser?.tradingName}</h2>
-              <p className="text-white/80 max-w-2xl font-bai tracking-tight">Este é seu painel de acompanhamento em tempo real da rodada.</p>
-              {insight && <p className="mt-6 text-sm italic bg-white/10 p-4 rounded-xl border border-white/20 inline-block">"{insight}"</p>}
-            </div>
-            <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-white/5 rounded-full blur-3xl"></div>
+            <h2 className="text-3xl font-bold mb-2 font-bai">Olá, {currentUser?.tradingName}</h2>
+            <p className="opacity-80 font-bai">Acompanhe seus resultados em tempo real.</p>
+            {insight && <p className="mt-6 text-sm italic bg-white/10 p-4 rounded-xl border border-white/20 inline-block">"{insight}"</p>}
           </section>
         )}
 
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">Volume Acumulado</p>
+            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest font-bai">Total Negociado</p>
             <h3 className="text-2xl font-bold text-slate-900 font-bai">{dashboardStats.totalAmount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</h3>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">{dashboardStats.counterLabel}</p>
+            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest font-bai">{dashboardStats.counterLabel}</p>
             <h3 className="text-2xl font-bold text-slate-900 font-bai">{dashboardStats.counterValue}</h3>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">A Negociar</p>
+            <p className="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest font-bai">Pendentes</p>
             <h3 className="text-2xl font-bold text-slate-900 font-bai">{dashboardStats.pendingList.length}</h3>
           </div>
         </section>
@@ -1211,125 +994,41 @@ const App: React.FC = () => {
         <div className={currentUser?.role === 'associate' ? "grid grid-cols-1 lg:grid-cols-2 gap-8" : "w-full"}>
           {currentUser?.role === 'associate' && (
             <div ref={formRef} className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm scroll-mt-24">
-              <h3 className="text-xl font-bold text-slate-800 mb-6 font-bai">Lançar Negociação</h3>
+              <h3 className="text-xl font-bold text-slate-800 mb-6 font-bai">Lançar Registro</h3>
               {regSettings.allowNegotiations ? (
                 <form onSubmit={handleAddNegotiation} className="space-y-6">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold text-slate-700">Selecione o Fornecedor <span className="text-red-500">*</span></label>
-                    <select 
-                      name="supplierCnpj" 
-                      value={selectedSupplierCnpj}
-                      onChange={(e) => setSelectedSupplierCnpj(e.target.value)}
-                      className="px-4 py-2 border border-slate-200 rounded-lg outline-none bg-slate-50 font-bai" 
-                      required
-                    >
-                      <option value="">Selecione na lista...</option>
-                      {dashboardStats.pendingList.map(s => <option key={s.cnpj} value={s.cnpj}>{s.tradingName}</option>)}
-                      {!dashboardStats.pendingList.find(s => s.cnpj === selectedSupplierCnpj) && selectedSupplierCnpj !== '' && (
-                        <option value={selectedSupplierCnpj}>{users.find(u => u.cnpj === selectedSupplierCnpj)?.tradingName}</option>
-                      )}
-                    </select>
-                  </div>
-                  <Input 
-                    label="Valor Negociado" 
-                    name="amount" 
-                    value={amountMask}
-                    onChange={handleAmountChange}
-                    placeholder="R$ 0,00"
-                    required 
-                  />
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-sm font-semibold text-slate-700">Observações (Opcional)</label>
-                    <textarea name="notes" className="px-4 py-2 border border-slate-200 rounded-lg outline-none h-24 bg-slate-50 focus:ring-2 focus:ring-[#b41e45] transition-all" />
-                  </div>
-                  <Button type="submit" className="w-full font-bai py-4">Salvar Registro</Button>
+                  <select 
+                    name="supplierCnpj" 
+                    value={selectedSupplierCnpj}
+                    onChange={(e) => setSelectedSupplierCnpj(e.target.value)}
+                    className="w-full p-2 border rounded-lg bg-slate-50 font-bai outline-none focus:ring-2 focus:ring-[#b41e45]" 
+                    required
+                  >
+                    <option value="">Selecione o Fornecedor...</option>
+                    {dashboardStats.pendingList.map(s => <option key={s.cnpj} value={s.cnpj}>{s.tradingName}</option>)}
+                  </select>
+                  <Input label="Valor Negociado" value={amountMask} onChange={handleAmountChange} placeholder="R$ 0,00" required />
+                  <textarea name="notes" placeholder="Observações..." className="w-full p-2 border rounded-lg bg-slate-50 h-24 outline-none focus:ring-2 focus:ring-[#b41e45]" />
+                  <Button type="submit" className="w-full font-bai">Salvar Negociação</Button>
                 </form>
               ) : (
-                <div className="text-center py-12 text-slate-400 italic font-bai">Os lançamentos de negociações estão temporariamente bloqueados pela organização.</div>
+                <p className="text-center text-slate-400 py-10 italic font-bai">Lançamentos bloqueados.</p>
               )}
             </div>
           )}
 
           <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm flex flex-col w-full">
-            <h3 className="text-xl font-bold text-slate-800 mb-6 font-bai">Desempenho por Empresa</h3>
+            <h3 className="text-xl font-bold text-slate-800 mb-6 font-bai">Desempenho Financeiro</h3>
             <div className="w-full min-h-[350px]">
               <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={dashboardStats.chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                <BarChart data={dashboardStats.chartData} margin={{ bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis 
-                    dataKey="name" 
-                    interval={0} 
-                    angle={-20} 
-                    textAnchor="end" 
-                    tick={{ fontSize: 10, fill: '#64748b' }}
-                    height={80}
-                  />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#94a3b8', fontSize: 12 }} 
-                    tickFormatter={(val) => `R$ ${(val/1000).toFixed(0)}k`}
-                  />
-                  <Tooltip 
-                    formatter={(value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} 
-                  />
-                  <Bar dataKey="total" fill="#b41e45" radius={[4, 4, 0, 0]}>
-                    <LabelList 
-                      dataKey="total" 
-                      position="top" 
-                      formatter={(val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                      style={{ fontSize: '10px', fill: '#b41e45', fontWeight: 'bold' }}
-                    />
-                  </Bar>
+                  <XAxis dataKey="name" angle={-25} textAnchor="end" tick={{ fontSize: 10 }} />
+                  <YAxis />
+                  <Tooltip formatter={(val: number) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} />
+                  <Bar dataKey="total" fill="#b41e45" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-              {dashboardStats.chartData.length === 0 && <p className="text-center text-slate-400 mt-20 italic font-bai">Realize a primeira negociação para ver os dados aqui.</p>}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-slate-800 px-2 font-bai">Empresas Ainda Não Negociadas</h3>
-            <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
-              <ul className="divide-y divide-slate-100">
-                {dashboardStats.pendingList.map(p => (
-                  <li key={p.cnpj} className="p-5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div>
-                      <p className="font-bold text-slate-800">{p.tradingName}</p>
-                      <p className="text-xs text-slate-400 font-mono">{p.cnpj}</p>
-                    </div>
-                    {currentUser?.role === 'associate' && (
-                      <button onClick={() => handleFillNegotiation(p.cnpj)} className="text-[10px] font-bold bg-[#b41e45]/10 px-4 py-2 rounded-full text-[#b41e45] uppercase tracking-widest hover:bg-[#b41e45] hover:text-white transition-all font-bai">Negociar</button>
-                    )}
-                  </li>
-                ))}
-                {dashboardStats.pendingList.length === 0 && <li className="p-10 text-center text-slate-400 italic font-bai">Todas as empresas parceiras foram positivadas! Parabéns.</li>}
-              </ul>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold text-slate-800 px-2 font-bai">Histórico da Rodada</h3>
-            <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
-              <ul className="divide-y divide-slate-100">
-                {dashboardStats.historyList.map(h => {
-                  const partner = users.find(u => u.cnpj === (currentUser?.role === 'associate' ? h.supplierCnpj : h.companyCnpj));
-                  return (
-                    <li key={h.id} className="p-5 flex flex-col gap-2 hover:bg-slate-50 transition-colors">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-bold text-slate-800">{partner?.tradingName}</p>
-                          <p className="text-xs text-slate-400">{new Date(h.timestamp).toLocaleString('pt-BR')}</p>
-                        </div>
-                        <span className="font-bold text-[#b41e45] font-bai">{h.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                      </div>
-                    </li>
-                  );
-                })}
-                {dashboardStats.historyList.length === 0 && <li className="p-10 text-center text-slate-400 italic font-bai">Nenhum registro encontrado.</li>}
-              </ul>
             </div>
           </div>
         </div>
@@ -1337,7 +1036,6 @@ const App: React.FC = () => {
 
       <footer className="bg-slate-900 text-slate-500 py-16 mt-16 text-center text-sm">
         <Logo className="brightness-0 invert opacity-60 mb-6 mx-auto" />
-        <p className="font-bai tracking-wide mb-2 uppercase text-[10px]">Rede de Conexões Estratégicas</p>
         <p>© {currentYear} Área Central S.A. | Todos os direitos reservados</p>
       </footer>
     </div>
